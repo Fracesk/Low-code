@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch, shallowRef } from 'vue'
+import { onMounted, onUnmounted, ref, watch, shallowRef } from 'vue'
 import { useCanvasStore } from '../stores/canvas'
+import ComponentRenderer from './ComponentRenderer.vue'
 import type { ComponentSchema, LayoutResult } from '../types/schema'
 
 const emit = defineEmits<{
@@ -124,6 +125,7 @@ watch(
 onUnmounted(() => {
   worker.value?.terminate()
   resizeObserver.disconnect()
+  window.removeEventListener('keydown', onKeyDown)
 })
 
 /** 拖拽放置 */
@@ -137,13 +139,20 @@ function onDragOver(e: DragEvent): void {
 function onDrop(e: DragEvent): void {
   e.preventDefault()
   const type = e.dataTransfer?.getData('component-type')
-  if (type) {
+  if (!type) return
+
+  // 检查是否放在容器上（通过 data 属性查找）
+  const containerEl = (e.target as HTMLElement).closest('[data-container-id]')
+  if (containerEl) {
+    const containerId = containerEl.getAttribute('data-container-id')!
+    store.addChildToContainer(containerId, type as ComponentSchema['type'])
+  } else {
     store.addComponent(type as ComponentSchema['type'])
   }
 }
 
 /** 选中组件 */
-function onSelectComponent(id: string): void {
+function onSelectComponent(id: string | null): void {
   store.selectComponent(id)
   emit('select', id)
 }
@@ -157,113 +166,121 @@ function onCanvasClick(e: MouseEvent): void {
   }
 }
 
+/** 键盘删除选中组件 */
+function onKeyDown(e: KeyboardEvent): void {
+  const tag = (e.target as HTMLElement).tagName
+  const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
+
+  // 撤销/重做 Ctrl+Z / Ctrl+Shift+Z
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+    if (isInput) return
+    e.preventDefault()
+    if (e.shiftKey) {
+      store.redo()
+    } else {
+      store.undo()
+    }
+    return
+  }
+
+  // 删除 Delete / Backspace
+  if ((e.key === 'Delete' || e.key === 'Backspace') && store.selectedId) {
+    if (isInput) return
+    if (store.editingId) return
+    e.preventDefault()
+    store.removeComponent(store.selectedId)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+})
+
 /** 根据类型查找 layout 结果 */
 function getLayout(id: string): LayoutResult | undefined {
   return layoutResults.value.find((l) => l.id === id)
 }
 
-/** 渲染单个组件（无递归容器，只展示一层） */
-function renderComponent(comp: ComponentSchema): string {
-  switch (comp.type) {
-    case 'text':
-      return (comp.props as { content?: string }).content || '文本'
-    case 'button':
-      return (comp.props as { label?: string }).label || '按钮'
-    case 'image':
-      return '🖼 图片'
-    case 'container':
-      return `容器 (${comp.children?.length ?? 0} 个子组件)`
-    case 'form':
-      return (comp.props as { title?: string }).title || '表单'
-    default:
-      return '未知组件'
-  }
+/** 导出 HTML */
+function handleExport(): void {
+  import('../utils/exportHtml').then(({ generateHtml, downloadHtml }) => {
+    const html = generateHtml(store.components)
+    downloadHtml(html, 'my-page.html')
+  })
 }
 </script>
 
 <template>
-  <div
-    ref="canvasRef"
-    class="canvas"
-    :class="{ 'canvas-dragover': false }"
-    @dragover="onDragOver"
-    @drop="onDrop"
-    @click="onCanvasClick"
-  >
-    <!-- 加载提示 -->
-    <div v-if="!workerReady" class="canvas-status">
-      布局计算中...
-    </div>
-
-    <!-- 空画布提示 -->
-    <div
-      v-else-if="store.components.length === 0"
-      class="canvas-empty"
-    >
-      <div class="canvas-empty-icon">+</div>
-      <p>拖拽组件到此处</p>
-    </div>
-
-    <!-- 组件渲染区 -->
-    <div
-      v-else
-      class="canvas-components"
-      :style="{ position: 'relative', width: '100%', minHeight: '400px' }"
-    >
-      <div
-        v-for="comp in store.components"
-        :key="comp.id"
-        class="canvas-component"
-        :class="{ selected: store.selectedId === comp.id }"
-        :style="{
-          position: 'absolute',
-          left: (getLayout(comp.id)?.x ?? 0) + 'px',
-          top: (getLayout(comp.id)?.y ?? 0) + 'px',
-          width: (getLayout(comp.id)?.width ?? 200) + 'px',
-          height: (getLayout(comp.id)?.height ?? 80) + 'px',
-        }"
-        @click.stop="onSelectComponent(comp.id)"
-      >
-        <div class="component-type-tag">{{ comp.type }}</div>
-
-        <!-- text -->
-        <div v-if="comp.type === 'text'" class="component-render component-text">
-          {{ (comp.props as { content: string }).content }}
-        </div>
-
-        <!-- button -->
+  <div class="canvas-wrapper">
+    <!-- 工具栏 -->
+    <div class="canvas-toolbar">
+      <div class="toolbar-left">
         <button
-          v-else-if="comp.type === 'button'"
-          class="component-render component-button"
-          :class="(comp.props as { type?: string }).type === 'primary' ? 'btn-primary' : 'btn-default'"
+          class="toolbar-btn"
+          :disabled="store.history.length === 0"
+          title="撤销 Ctrl+Z"
+          @click="store.undo()"
+        >↩ 撤销</button>
+        <button
+          class="toolbar-btn"
+          :disabled="store.future.length === 0"
+          title="重做 Ctrl+Shift+Z"
+          @click="store.redo()"
+        >↪ 重做</button>
+      </div>
+      <div class="toolbar-right">
+        <button class="toolbar-btn btn-export" @click="handleExport">导出 HTML</button>
+      </div>
+    </div>
+
+    <div
+      ref="canvasRef"
+      class="canvas"
+      :class="{ 'canvas-dragover': false }"
+      @dragover="onDragOver"
+      @drop="onDrop"
+      @click="onCanvasClick"
+    >
+      <!-- 加载提示 -->
+      <div v-if="!workerReady" class="canvas-status">
+        布局计算中...
+      </div>
+
+      <!-- 空画布提示 -->
+      <div
+        v-else-if="store.components.length === 0"
+        class="canvas-empty"
+      >
+        <div class="canvas-empty-icon">+</div>
+        <p>拖拽组件到此处</p>
+      </div>
+
+      <!-- 组件渲染区 -->
+      <div
+        v-else
+        class="canvas-components"
+        :style="{ position: 'relative', width: '100%', minHeight: '400px' }"
+      >
+        <div
+          v-for="comp in store.components"
+          :key="comp.id"
+          class="canvas-component"
+          :class="{ selected: store.selectedId === comp.id }"
+          :style="{
+            position: 'absolute',
+            left: (getLayout(comp.id)?.x ?? 0) + 'px',
+            top: (getLayout(comp.id)?.y ?? 0) + 'px',
+            width: comp.type === 'container' ? 'auto' : (getLayout(comp.id)?.width ?? 200) + 'px',
+            minWidth: (getLayout(comp.id)?.width ?? 200) + 'px',
+            height: comp.type === 'container' ? 'auto' : (getLayout(comp.id)?.height ?? 80) + 'px',
+            minHeight: (getLayout(comp.id)?.height ?? 80) + 'px',
+          }"
+          :data-container-id="comp.type === 'container' ? comp.id : undefined"
+          @click.stop="onSelectComponent(comp.id)"
         >
-          {{ (comp.props as { label: string }).label }}
-        </button>
-
-        <!-- image -->
-        <img
-          v-else-if="comp.type === 'image'"
-          class="component-render component-image"
-          :src="(comp.props as { src: string }).src"
-          :alt="(comp.props as { alt?: string }).alt ?? ''"
-          draggable="false"
-        />
-
-        <!-- container -->
-        <div v-else-if="comp.type === 'container'" class="component-render component-container">
-          <div class="container-placeholder">
-            容器 ({{ comp.children?.length ?? 0 }} 子组件)
-          </div>
+          <div class="component-type-tag">{{ comp.type }}</div>
+          <ComponentRenderer :component="comp" @select="onSelectComponent" />
         </div>
-
-        <!-- form -->
-        <div v-else-if="comp.type === 'form'" class="component-render component-form">
-          <div class="form-title">{{ (comp.props as { title?: string }).title ?? '表单' }}</div>
-          <div class="form-placeholder">表单区域</div>
-        </div>
-
-        <!-- 未知类型 -->
-        <div v-else class="component-render component-unknown">未知组件</div>
       </div>
     </div>
   </div>
@@ -351,73 +368,61 @@ function renderComponent(comp: ComponentSchema): string {
   z-index: 1;
 }
 
-.component-render {
+/* ─── 工具栏 ─────────────────────── */
+.canvas-wrapper {
   width: 100%;
-  height: 100%;
+  max-width: 900px;
+}
+
+.canvas-toolbar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px 8px 0 0;
+  border-bottom: none;
 }
 
-.component-text {
-  padding: 8px;
-  font-size: 14px;
-  word-break: break-all;
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.component-button {
-  padding: 6px 16px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
+.toolbar-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
   cursor: pointer;
-  margin: auto;
+  transition: all 0.15s;
+  white-space: nowrap;
 }
 
-.btn-primary {
+.toolbar-btn:hover:not(:disabled) {
+  border-color: #409eff;
+  color: #409eff;
+}
+
+.toolbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-export {
   background: #409eff;
   color: #fff;
+  border-color: #409eff;
 }
 
-.btn-default {
-  background: #f5f5f5;
-  color: #333;
-  border: 1px solid #d9d9d9;
-}
-
-.component-image {
-  object-fit: cover;
-  width: 100%;
-  height: 100%;
-}
-
-.component-container {
-  background: #fafafa;
-  border: 1px dashed #d9d9d9;
-  color: #999;
-  font-size: 13px;
-}
-
-.component-form {
-  flex-direction: column;
-  gap: 4px;
-}
-
-.form-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #333;
-}
-
-.form-placeholder {
-  font-size: 11px;
-  color: #bbb;
-}
-
-.component-unknown {
-  color: #999;
-  font-size: 13px;
-  background: #fafafa;
+.btn-export:hover:not(:disabled) {
+  background: #66b1ff;
+  border-color: #66b1ff;
+  color: #fff;
 }
 </style>

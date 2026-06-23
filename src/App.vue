@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import ComponentPanel from './components/ComponentPanel.vue'
 import Canvas from './components/Canvas.vue'
+import PropertyPanel from './components/PropertyPanel.vue'
+import { useCanvasStore } from './stores/canvas'
+
+const store = useCanvasStore()
 </script>
 
 <template>
@@ -11,6 +15,11 @@ import Canvas from './components/Canvas.vue'
     <main class="app-main">
       <Canvas />
     </main>
+    <Transition name="slide">
+      <aside v-if="store.selectedId" class="app-property-panel">
+        <PropertyPanel />
+      </aside>
+    </Transition>
   </div>
 </template>
 
@@ -38,5 +47,27 @@ import Canvas from './components/Canvas.vue'
   display: flex;
   justify-content: center;
   align-items: flex-start;
+}
+
+.app-property-panel {
+  width: 300px;
+  min-width: 300px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 滑入/滑出动画 */
+.slide-enter-active,
+.slide-leave-active {
+  transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.slide-enter-from,
+.slide-leave-to {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
 }
 </style>

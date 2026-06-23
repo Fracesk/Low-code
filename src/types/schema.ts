@@ -27,10 +27,18 @@ export interface ContainerProps {
   gap?: number
 }
 
+/** 表单字段定义 */
+export interface FormField {
+  label: string
+  type: string
+  placeholder?: string
+  required?: boolean
+}
+
 /** Form 组件属性 */
 export interface FormProps {
   title?: string
-  fields?: Array<{ label: string; type: string }>
+  fields?: FormField[]
 }
 
 /** 组件实例协议 */
