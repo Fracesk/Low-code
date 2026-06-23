@@ -1,1 +1,0 @@
-{"root":["./src/main.ts","./src/stores/canvas.ts","./src/types/schema.ts","./src/utils/exporthtml.ts","./src/workers/layout.worker.ts","./src/app.vue","./src/components/canvas.vue","./src/components/componentpanel.vue","./src/components/componentrenderer.vue","./src/components/propertypanel.vue","./env.d.ts"],"version":"5.7.3"}
