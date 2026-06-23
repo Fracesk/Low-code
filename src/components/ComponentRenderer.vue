@@ -57,6 +57,12 @@ function onTextPaste(e: ClipboardEvent): void {
   document.execCommand('insertText', false, text)
 }
 
+// ─── 选中 ────────────────────────────────────────
+
+function emitSelect(): void {
+  emit('select', props.component.id)
+}
+
 // ─── 按钮点击 ────────────────────────────────────
 
 function onButtonClick(): void {
@@ -64,6 +70,7 @@ function onButtonClick(): void {
   setTimeout(() => {
     btnPressed.value = false
   }, 200)
+  emitSelect()
 }
 
 // ─── 容器拖放 ────────────────────────────────────
@@ -109,6 +116,7 @@ function onChildSelect(id: string | null): void {
     v-if="component.type === 'text'"
     class="component-render component-text"
     :class="{ 'is-child': isChild }"
+    @click.stop="emitSelect"
     @dblclick.stop="startEditing"
   >
     <div v-if="!isEditing" class="text-display" :style="{ fontSize: (compProps as any).fontSize + 'px' || '14px', color: (compProps as any).color || '#333' }">
@@ -147,6 +155,7 @@ function onChildSelect(id: string | null): void {
     :src="(compProps as any).src"
     :alt="(compProps as any).alt ?? ''"
     draggable="false"
+    @click.stop="emitSelect"
   />
 
   <!-- container -->
@@ -154,6 +163,7 @@ function onChildSelect(id: string | null): void {
     v-else-if="component.type === 'container'"
     class="component-render component-container"
     :class="{ 'drag-over': isDragOver, 'is-child': isChild }"
+    @click.stop="emitSelect"
     @dragover="onContainerDragOver"
     @dragleave="onContainerDragLeave"
     @drop="onContainerDrop"
@@ -191,6 +201,7 @@ function onChildSelect(id: string | null): void {
     v-else-if="component.type === 'form'"
     class="component-render component-form"
     :class="{ 'is-child': isChild }"
+    @click.stop="emitSelect"
   >
     <div class="form-header">{{ (compProps as any).title ?? '表单' }}</div>
     <div class="form-fields">
